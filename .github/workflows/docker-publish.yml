@@ -31,6 +31,10 @@ jobs:
       # with sigstore/fulcio when running outside of PRs.
       id-token: write
 
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      digest: ${{ steps.build-and-push.outputs.digest }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -94,3 +98,26 @@ jobs:
         # This step uses the identity token to provision an ephemeral certificate
         # against the sigstore community Fulcio instance.
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+
+      - name: Output image
+        id: image
+        run: |
+          # NOTE: Set the image as an output because the `env` context is not
+          # available to the inputs of a reusable workflow call.
+          image_name="${REGISTRY}/${IMAGE_NAME}"
+          echo "image=$image_name" >> "$GITHUB_OUTPUT"
+
+  provenance:
+    needs: [build]
+    permissions:
+      actions: read # for detecting the Github Actions environment.
+      id-token: write # for creating OIDC tokens for signing.
+      packages: write # for uploading attestations.
+    if: github.event_name != 'pull_request'
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
+    with:
+      image: ${{ needs.build.outputs.image }}
+      digest: ${{ needs.build.outputs.digest }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
